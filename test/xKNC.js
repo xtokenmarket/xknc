@@ -1,13 +1,17 @@
 const { expect, assert } = require('chai')
-const { utils } = require('ethers')
+const { utils, BigNumber } = require('ethers')
 
 describe('xKNC', () => {
   const provider = waffle.provider
-  const [wallet, user] = provider.getWallets()
-
+  const [wallet, user, msigUser, manager, manager2] = provider.getWallets()
   const ETH_ADDRESS = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE'
+  const FEE_DIVISORS = {
+    MINT_FEE: '0',
+    BURN_FEE: '500',
+    CLAIM_FEE: '100'
+  };
 
-  let xknc, knc, kyberProxy, kyberStaking, kyberDao
+  let xkncV1, knc, kyberProxy, kyberStaking, kyberDao, xknc
 
   before(async () => {
     const KyberStaking = await ethers.getContractFactory('MockKyberStaking')
@@ -21,23 +25,32 @@ describe('xKNC', () => {
     const KNC = await ethers.getContractFactory('MockKNC')
     knc = await KNC.deploy()
     await knc.deployed()
-    console.log('knc address', knc.address)
 
     const KyberDao = await ethers.getContractFactory('MockKyberDAO')
     kyberDao = await KyberDao.deploy()
     await kyberDao.deployed()
 
     const xKNC = await ethers.getContractFactory('xKNC')
-    xknc = await xKNC.deploy(
-      "Votes in stakers' interests",
-      kyberStaking.address,
-      kyberProxy.address,
-      knc.address,
-      kyberDao.address
-    )
-    await xknc.deployed()
-    console.log('xKNC address:', xknc.address)
+    console.log("xKNC deploy");
+    xkncV1 = await xKNC.deploy();
 
+    const xKNCProxy = await ethers.getContractFactory('xKNCProxy');
+    const xkncProxy = await xKNCProxy.deploy(xkncV1.address, msigUser.address); // transfer ownership to multisig
+    const xkncProxyCast = await ethers.getContractAt('xKNC', xkncProxy.address);
+
+    await xkncProxyCast.initialize(
+        "xKNCa",
+        "xKNC Mandate: Stakers",
+        kyberStaking.address,
+        kyberProxy.address,
+        knc.address,
+        kyberDao.address,
+        FEE_DIVISORS.MINT_FEE,
+        FEE_DIVISORS.BURN_FEE,
+        FEE_DIVISORS.CLAIM_FEE
+    )
+
+    xknc = xkncProxyCast;
     await kyberProxy.setKncAddress(knc.address)
     await knc.transfer(kyberProxy.address, utils.parseEther('500'))
 
@@ -66,11 +79,6 @@ describe('xKNC', () => {
   })
 
   describe('xKNC: deployment', () => {
-    it('should set the fee divisors', async () => {
-      await xknc.setFeeDivisors('0', '500', '100')
-      assert.isOk('Fee set')
-    })
-
     it('should set a kyber fee handler address', async () => {
       await xknc.addKyberFeeHandler(kyberFeeHandler.address, ETH_ADDRESS)
       assert.isOk('Kyber fee handler address set')
@@ -128,17 +136,17 @@ describe('xKNC', () => {
   describe('xKNC: burning', async () => {
     it('should send ETH to caller if burning for ETH', async () => {
       const totalSupply = await xknc.totalSupply()
-      const toBurn = totalSupply.div(utils.bigNumberify(5))
+      const toBurn = totalSupply.div(BigNumber.from(5))
       const ethBalBefore = await provider.getBalance(wallet.address)
 
-      await xknc.burn(toBurn, false, 0)
+      await xknc.burn(toBurn, false, 0, { "gasLimit":1000000 })
       const ethBalAfter = await provider.getBalance(wallet.address)
       assert.isAbove(ethBalAfter, ethBalBefore)
     })
 
     it('should send KNC to caller if burning for KNC', async () => {
       const totalSupply = await xknc.totalSupply()
-      const toBurn = totalSupply.div(utils.bigNumberify(5))
+      const toBurn = totalSupply.div(BigNumber.from(5))
       const kncBalBefore = await knc.balanceOf(wallet.address)
 
       await xknc.burn(toBurn, true, 0)
@@ -187,6 +195,26 @@ describe('xKNC', () => {
       await xknc.claimReward(2, [1], [100000], [0])
       const stakedBalAfter = await xknc.getFundKncBalanceTwei()
       assert.isAbove(stakedBalAfter, stakedBalBefore)
+    })
+  })
+
+  describe("xKNC: Util Functions", async () => {
+    it('should set the fee divisors again by owner', async () => {
+      await xknc.setFeeDivisors('100', '500', '100')
+      assert.isOk('Fee set')
+    })
+
+    it('should allow for a permissioned manager to be set for vote', async () => {
+      await xknc.setManager(manager.address)
+      await expect(xknc.connect(manager).setFeeDivisors('0', '500', '100')).to.be.reverted
+      await xknc.connect(manager).vote(1, 1)
+      assert.isOk('Campaign vote submitted as manager')
+    })
+
+    it('should allow for a permissioned manager to be set', async () => {
+      await xknc.setManager(manager2.address)
+      await xknc.connect(manager2).claimReward(1, [0], [100000], [0])
+      assert.isOk('Reward claimed as manager')
     })
   })
 })

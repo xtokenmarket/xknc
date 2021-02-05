@@ -1,24 +1,28 @@
-pragma solidity 0.5.15;
+pragma solidity 0.6.2;
 
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/ERC20Detailed.sol";
-import "@openzeppelin/contracts/lifecycle/Pausable.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts-ethereum-package/contracts/token/ERC20/SafeERC20.sol";
+import "@openzeppelin/contracts-ethereum-package/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts-ethereum-package/contracts/Initializable.sol";
+import "@openzeppelin/contracts-ethereum-package/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts-ethereum-package/contracts/utils/Pausable.sol";
+import "@openzeppelin/contracts-ethereum-package/contracts/utils/ReentrancyGuard.sol";
 
-import "./util/Whitelist.sol";
 import "./interface/IKyberNetworkProxy.sol";
 import "./interface/IKyberStaking.sol";
 import "./interface/IKyberDAO.sol";
 import "./interface/IKyberFeeHandler.sol";
 
-
 /*
  * xKNC KyberDAO Pool Token
  * Communal Staking Pool with Stated Governance Position
  */
-contract xKNC is ERC20, ERC20Detailed, Whitelist, Pausable, ReentrancyGuard {
+contract xKNC is
+    Initializable,
+    ERC20UpgradeSafe,
+    OwnableUpgradeSafe,
+    PausableUpgradeSafe,
+    ReentrancyGuardUpgradeSafe
+{
     using SafeMath for uint256;
     using SafeERC20 for ERC20;
 
@@ -36,34 +40,22 @@ contract xKNC is ERC20, ERC20Detailed, Whitelist, Pausable, ReentrancyGuard {
     uint256 constant MAX_UINT = 2**256 - 1;
     uint256 constant INITIAL_SUPPLY_MULTIPLIER = 10;
 
-    uint256[] public feeDivisors;
     uint256 private withdrawableEthFees;
     uint256 private withdrawableKncFees;
 
     string public mandate;
 
-    mapping(address => bool) fallbackAllowedAddress;
+    address private manager;
+    address private manager2;
 
-    struct FeeStructure {
+    struct FeeDivisors {
         uint mintFee;
         uint burnFee;
         uint claimFee;
     }
 
-    FeeStructure public feeStructure;
+    FeeDivisors public feeDivisors;
 
-    event MintWithEth(
-        address indexed user,
-        uint256 ethPayable,
-        uint256 mintAmount,
-        uint256 timestamp
-    );
-    event MintWithKnc(
-        address indexed user,
-        uint256 kncPayable,
-        uint256 mintAmount,
-        uint256 timestamp
-    );
     event Burn(
         address indexed user,
         bool redeemedForKnc,
@@ -77,20 +69,29 @@ contract xKNC is ERC20, ERC20Detailed, Whitelist, Pausable, ReentrancyGuard {
 
     enum FeeTypes {MINT, BURN, CLAIM}
 
-    constructor(
+    function initialize(
+        string memory _symbol,
         string memory _mandate,
         address _kyberStakingAddress,
         address _kyberProxyAddress,
         address _kyberTokenAddress,
-        address _kyberDaoAddress
-    ) public ERC20Detailed("xKNC", "xKNCa", 18) {
+        address _kyberDaoAddress,
+        uint mintFee,
+        uint burnFee,
+        uint claimFee
+    ) public initializer {
+        __Context_init_unchained();
+        __Ownable_init_unchained();
+        __ReentrancyGuard_init_unchained();
+        __ERC20_init_unchained("xKNC", _symbol);
+
         mandate = _mandate;
         kyberStaking = IKyberStaking(_kyberStakingAddress);
         kyberProxy = IKyberNetworkProxy(_kyberProxyAddress);
         knc = ERC20(_kyberTokenAddress);
         kyberDao = IKyberDAO(_kyberDaoAddress);
 
-        _addFallbackAllowedAddress(_kyberProxyAddress);
+        _setFeeDivisors(mintFee, burnFee, claimFee);
     }
 
     /*
@@ -113,7 +114,6 @@ contract xKNC is ERC20, ERC20Detailed, Whitelist, Pausable, ReentrancyGuard {
 
         uint256 mintAmount = _calculateMintAmount(kncBalanceBefore);
 
-        emit MintWithEth(msg.sender, msg.value, mintAmount, block.timestamp);
         return super._mint(msg.sender, mintAmount);
     }
 
@@ -135,7 +135,6 @@ contract xKNC is ERC20, ERC20Detailed, Whitelist, Pausable, ReentrancyGuard {
 
         uint256 mintAmount = _calculateMintAmount(kncBalanceBefore);
 
-        emit MintWithKnc(msg.sender, kncAmountTwei, mintAmount, block.timestamp);
         return super._mint(msg.sender, mintAmount);
     }
 
@@ -225,7 +224,7 @@ contract xKNC is ERC20, ERC20Detailed, Whitelist, Pausable, ReentrancyGuard {
      * @param DAO campaign ID
      * @param Choice of voting option
      */
-    function vote(uint256 campaignID, uint256 option) external onlyOwner {
+    function vote(uint256 campaignID, uint256 option) external onlyOwnerOrManager {
         kyberDao.vote(campaignID, option);
     }
 
@@ -245,7 +244,7 @@ contract xKNC is ERC20, ERC20Detailed, Whitelist, Pausable, ReentrancyGuard {
         uint256[] calldata feeHandlerIndices,
         uint256[] calldata maxAmountsToSell,
         uint256[] calldata minRates
-    ) external onlyOwner {
+    ) external onlyOwnerOrManager {
         require(
             feeHandlerIndices.length == maxAmountsToSell.length,
             "Arrays must be equal length"
@@ -293,7 +292,7 @@ contract xKNC is ERC20, ERC20Detailed, Whitelist, Pausable, ReentrancyGuard {
         uint256[] calldata feeHandlerIndices,
         uint256[] calldata maxAmountsToSell,
         uint256[] calldata minRates
-    ) external onlyOwner {
+    ) external onlyOwnerOrManager {
         for (uint256 i = 0; i < feeHandlerIndices.length; i++) {
             _unwindRewards(
                 feeHandlerIndices[i],
@@ -396,32 +395,28 @@ contract xKNC is ERC20, ERC20Detailed, Whitelist, Pausable, ReentrancyGuard {
         private
         returns (uint256 fee)
     {
-        if (!isWhitelisted(msg.sender)) {
-            uint256 feeRate = getFeeRate(_type);
-            if (feeRate == 0) return 0;
+        uint256 feeRate = getFeeRate(_type);
+        if (feeRate == 0) return 0;
 
-            fee = (getFundEthBalanceWei().sub(ethBalBefore)).div(feeRate);
-            withdrawableEthFees = withdrawableEthFees.add(fee);
-        }
+        fee = (getFundEthBalanceWei().sub(ethBalBefore)).div(feeRate);
+        withdrawableEthFees = withdrawableEthFees.add(fee);
     }
 
     function _administerKncFee(uint256 _kncAmount, FeeTypes _type)
         private
         returns (uint256 fee)
     {
-        if (!isWhitelisted(msg.sender)) {
-            uint256 feeRate = getFeeRate(_type);
-            if (feeRate == 0) return 0;
+        uint256 feeRate = getFeeRate(_type);
+        if (feeRate == 0) return 0;
 
-            fee = _kncAmount.div(feeRate);
-            withdrawableKncFees = withdrawableKncFees.add(fee);
-        }
+        fee = _kncAmount.div(feeRate);
+        withdrawableKncFees = withdrawableKncFees.add(fee);
     }
 
     function getFeeRate(FeeTypes _type) public view returns (uint256) {
-        if (_type == FeeTypes.MINT) return feeStructure.mintFee;
-        if (_type == FeeTypes.BURN) return feeStructure.burnFee;
-        if (_type == FeeTypes.CLAIM) return feeStructure.claimFee;
+        if (_type == FeeTypes.MINT) return feeDivisors.mintFee;
+        if (_type == FeeTypes.BURN) return feeDivisors.burnFee;
+        if (_type == FeeTypes.CLAIM) return feeDivisors.claimFee;
     }
 
     /*
@@ -432,14 +427,12 @@ contract xKNC is ERC20, ERC20Detailed, Whitelist, Pausable, ReentrancyGuard {
     function addKyberFeeHandler(
         address _kyberfeeHandlerAddress,
         address _tokenAddress
-    ) external onlyOwner {
+    ) external onlyOwnerOrManager {
         kyberFeeHandlers.push(IKyberFeeHandler(_kyberfeeHandlerAddress));
         kyberFeeTokens.push(_tokenAddress);
 
         if (_tokenAddress != ETH_ADDRESS) {
             _approveKyberProxyContract(_tokenAddress, false);
-        } else {
-            _addFallbackAllowedAddress(_kyberfeeHandlerAddress);
         }
     }
 
@@ -450,7 +443,7 @@ contract xKNC is ERC20, ERC20Detailed, Whitelist, Pausable, ReentrancyGuard {
      * @dev Approves Kyber Staking contract to deposit KNC
      * @param Pass _reset as true if resetting allowance to zero
      */
-    function approveStakingContract(bool _reset) external onlyOwner {
+    function approveStakingContract(bool _reset) external onlyOwnerOrManager {
         uint256 amount = _reset ? 0 : MAX_UINT;
         knc.approve(address(kyberStaking), amount);
     }
@@ -463,7 +456,7 @@ contract xKNC is ERC20, ERC20Detailed, Whitelist, Pausable, ReentrancyGuard {
      */
     function approveKyberProxyContract(address _token, bool _reset)
         external
-        onlyOwner
+        onlyOwnerOrManager
     {
         _approveKyberProxyContract(_token, _reset);
     }
@@ -479,9 +472,15 @@ contract xKNC is ERC20, ERC20Detailed, Whitelist, Pausable, ReentrancyGuard {
      * @dev ex: A feeDivisor of 334 suggests a fee of 0.3%
      * @param feeDivisors[mint, burn, claim]:
      */
-    function setFeeDivisors(uint256 _mintFee, uint256 _burnFee, uint256 _claimFee)
-        external
-        onlyOwner
+     function setFeeDivisors(uint256 _mintFee, uint256 _burnFee, uint256 _claimFee)
+         external
+         onlyOwner
+     {
+         _setFeeDivisors(_mintFee, _burnFee, _claimFee);
+     }
+
+    function _setFeeDivisors(uint256 _mintFee, uint256 _burnFee, uint256 _claimFee)
+        private
     {
         require(
             _mintFee >= 100 || _mintFee == 0,
@@ -492,9 +491,9 @@ contract xKNC is ERC20, ERC20Detailed, Whitelist, Pausable, ReentrancyGuard {
             "Burn fee must be equal to or less than 1%"
         );
         require(_claimFee >= 10, "Claim fee must be less than 10%");
-        feeStructure.mintFee = _mintFee;
-        feeStructure.burnFee = _burnFee;
-        feeStructure.claimFee = _claimFee;
+        feeDivisors.mintFee = _mintFee;
+        feeDivisors.burnFee = _burnFee;
+        feeDivisors.claimFee = _claimFee;
 
         emit FeeDivisorsSet(_mintFee, _burnFee, _claimFee);
     }
@@ -513,21 +512,28 @@ contract xKNC is ERC20, ERC20Detailed, Whitelist, Pausable, ReentrancyGuard {
         emit FeeWithdraw(ethFees, kncFees, block.timestamp);
     }
 
-    function addFallbackAllowedAddress(address _address) external onlyOwner {
-        _addFallbackAllowedAddress(_address);
+    function setManager(address _manager) external onlyOwner {
+        manager = _manager;
     }
 
-    function _addFallbackAllowedAddress(address _address) private {
-        fallbackAllowedAddress[_address] = true;
+    function setManager2(address _manager2) external onlyOwner {
+        manager2 = _manager2;
+    }
+
+    modifier onlyOwnerOrManager {
+        require(
+            msg.sender == owner() ||
+                msg.sender == manager ||
+                msg.sender == manager2,
+            "Non-admin caller"
+        );
+        _;
     }
 
     /*
      * @notice Fallback to accommodate claimRewards function
      */
-    function() external payable {
-        require(
-            fallbackAllowedAddress[msg.sender],
-            "Only approved address can use fallback"
-        );
+    receive() external payable {
+        require(msg.sender != tx.origin, "Errant ETH deposit");
     }
 }
