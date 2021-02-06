@@ -1,4 +1,5 @@
 const hre = require("hardhat");
+const { ethers } = require("hardhat");
 
 // mainnet
 const KYBER_PROXY_ADDRESS = '0x9AAb3f75489902f3a48495025729a0AF77d4b11e'
@@ -52,6 +53,29 @@ async function main() {
   console.log('kyber staking contract approved')
   await xkncProxyCast.approveKyberProxyContract(KYBER_TOKEN_ADDRESS, false);
   console.log('knc approved on proxy contract')
+
+  await xkncProxyCast.mint('0', { value: ethers.utils.parseEther('1')})
+  const xkncBal = await xkncProxyCast.balanceOf(deployer.address)
+  console.log('xkncBal', xkncBal.toString())
+  
+  const toBurn = xkncBal.div(50)
+  await xkncProxyCast.burn(toBurn, true, '0')
+
+  const xkncBal2 = await xkncProxyCast.balanceOf(deployer.address)
+  console.log('xkncBal2', xkncBal2.toString())
+  
+  const knc = await ethers.getContractAt('ERC20', KYBER_TOKEN_ADDRESS)
+  const kncBal = await knc.balanceOf(deployer.address)  
+  console.log('kncBal', kncBal.toString())
+  
+  await knc.approve(xkncProxyCast.address, toBurn)
+  await xkncProxyCast.mintWithToken(kncBal)
+  
+  const xkncBal3 = await xkncProxyCast.balanceOf(deployer.address)
+  console.log('xkncBal3', xkncBal3.toString())
+  
+  const stakedBalance = await xkncProxyCast.getFundKncBalanceTwei()
+  console.log('stakedBalance', stakedBalance.toString())
 }
 
 main()

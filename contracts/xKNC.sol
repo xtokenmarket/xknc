@@ -62,10 +62,7 @@ contract xKNC is
         uint256 burnAmount,
         uint256 timestamp
     );
-    event FeeWithdraw(uint256 ethAmount, uint256 kncAmount, uint256 timestamp);
     event FeeDivisorsSet(uint256 mintFee, uint256 burnFee, uint256 claimFee);
-    event EthRewardClaimed(uint256 amount, uint256 timestamp);
-    event TokenRewardClaimed(uint256 amount, uint256 timestamp);
 
     enum FeeTypes {MINT, BURN, CLAIM}
 
@@ -124,7 +121,7 @@ contract xKNC is
      * @dev: Mints pro rata xKNC tokens
      * @param: Number of KNC to contribue
      */
-    function mintWithKnc(uint256 kncAmountTwei) external whenNotPaused {
+    function mintWithToken(uint256 kncAmountTwei) external whenNotPaused {
         require(kncAmountTwei > 0, "Must contribute KNC");
         knc.safeTransferFrom(msg.sender, address(this), kncAmountTwei);
 
@@ -259,16 +256,11 @@ contract xKNC is
             kyberFeeHandlers[i].claimStakerReward(address(this), epoch);
 
             if (kyberFeeTokens[i] == ETH_ADDRESS) {
-                emit EthRewardClaimed(
-                    getFundEthBalanceWei().sub(ethBalBefore),
-                    block.timestamp
-                );
                 _administerEthFee(FeeTypes.CLAIM, ethBalBefore);
             } else {
                 uint256 tokenBal = IERC20(kyberFeeTokens[i]).balanceOf(
                     address(this)
                 );
-                emit TokenRewardClaimed(tokenBal, block.timestamp);
             }
 
             _unwindRewards(
@@ -509,7 +501,6 @@ contract xKNC is
         require(success, "Burn transfer failed");
 
         knc.safeTransfer(owner(), kncFees);
-        emit FeeWithdraw(ethFees, kncFees, block.timestamp);
     }
 
     function setManager(address _manager) external onlyOwner {
@@ -518,6 +509,14 @@ contract xKNC is
 
     function setManager2(address _manager2) external onlyOwner {
         manager2 = _manager2;
+    }
+
+    function pause() external onlyOwnerOrManager {
+        _pause();
+    }
+
+    function unpause() external onlyOwnerOrManager {
+        _unpause();
     }
 
     modifier onlyOwnerOrManager {
