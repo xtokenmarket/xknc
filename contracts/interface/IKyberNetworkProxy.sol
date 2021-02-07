@@ -1,8 +1,8 @@
-pragma solidity 0.5.15;
+pragma solidity 0.6.2;
 
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import { IERC20 as ERC20 } from "@openzeppelin/contracts-ethereum-package/contracts/token/ERC20/ERC20.sol";
 
-contract IKyberNetworkProxy {
+interface IKyberNetworkProxy {
     function getExpectedRate(ERC20 src, ERC20 dest, uint srcQty) external view returns (uint expectedRate, uint slippageRate);
     function swapEtherToToken(ERC20 token, uint minConversionRate) external payable returns(uint);
     function swapTokenToEther(ERC20 token, uint tokenQty, uint minRate) external payable returns(uint);

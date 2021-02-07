@@ -1,5 +1,5 @@
-pragma solidity 0.5.15;
+pragma solidity 0.6.2;
 
-contract IKyberDAO {
+interface IKyberDAO {
     function vote(uint256 campaignID, uint256 option) external;
 }

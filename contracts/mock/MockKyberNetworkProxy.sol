@@ -1,4 +1,4 @@
-pragma solidity 0.5.15;
+pragma solidity 0.6.2;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -29,7 +29,7 @@ contract MockKyberNetworkProxy {
     // must send eth to contract first
     function swapTokenToEther(ERC20 token, uint tokenQty, uint minRate) external payable returns(uint) {
         uint ethToSend = tokenQty.div(200);
-        msg.sender.transfer(ethToSend);
+        (bool success, ) = msg.sender.call.value(ethToSend)("");
     }
 
 
