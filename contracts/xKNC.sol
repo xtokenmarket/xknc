@@ -257,10 +257,6 @@ contract xKNC is
 
             if (kyberFeeTokens[i] == ETH_ADDRESS) {
                 _administerEthFee(FeeTypes.CLAIM, ethBalBefore);
-            } else {
-                uint256 tokenBal = IERC20(kyberFeeTokens[i]).balanceOf(
-                    address(this)
-                );
             }
 
             _unwindRewards(
