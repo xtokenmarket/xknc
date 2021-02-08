@@ -26,19 +26,20 @@ contract xKNC is
     using SafeMath for uint256;
     using SafeERC20 for ERC20;
 
-    address private constant ETH_ADDRESS = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+    address private constant ETH_ADDRESS =
+        0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
-    ERC20 public knc;
-    IKyberDAO public kyberDao;
-    IKyberStaking public kyberStaking;
-    IKyberNetworkProxy public kyberProxy;
-    IKyberFeeHandler[] public kyberFeeHandlers;
+    ERC20 private knc;
+    IKyberDAO private kyberDao;
+    IKyberStaking private kyberStaking;
+    IKyberNetworkProxy private kyberProxy;
+    IKyberFeeHandler[] private kyberFeeHandlers;
 
     address[] private kyberFeeTokens;
 
-    uint256 constant PERCENT = 100;
-    uint256 constant MAX_UINT = 2**256 - 1;
-    uint256 constant INITIAL_SUPPLY_MULTIPLIER = 10;
+    uint256 private constant PERCENT = 100;
+    uint256 private constant MAX_UINT = 2**256 - 1;
+    uint256 private constant INITIAL_SUPPLY_MULTIPLIER = 10;
 
     uint256 private withdrawableEthFees;
     uint256 private withdrawableKncFees;
@@ -49,19 +50,13 @@ contract xKNC is
     address private manager2;
 
     struct FeeDivisors {
-        uint mintFee;
-        uint burnFee;
-        uint claimFee;
+        uint256 mintFee;
+        uint256 burnFee;
+        uint256 claimFee;
     }
 
     FeeDivisors public feeDivisors;
 
-    event Burn(
-        address indexed user,
-        bool redeemedForKnc,
-        uint256 burnAmount,
-        uint256 timestamp
-    );
     event FeeDivisorsSet(uint256 mintFee, uint256 burnFee, uint256 claimFee);
 
     enum FeeTypes {MINT, BURN, CLAIM}
@@ -69,13 +64,13 @@ contract xKNC is
     function initialize(
         string memory _symbol,
         string memory _mandate,
-        address _kyberStakingAddress,
-        address _kyberProxyAddress,
-        address _kyberTokenAddress,
-        address _kyberDaoAddress,
-        uint mintFee,
-        uint burnFee,
-        uint claimFee
+        IKyberStaking _kyberStaking,
+        IKyberNetworkProxy _kyberProxy,
+        ERC20 _knc,
+        IKyberDAO _kyberDao,
+        uint256 mintFee,
+        uint256 burnFee,
+        uint256 claimFee
     ) public initializer {
         __Context_init_unchained();
         __Ownable_init_unchained();
@@ -83,10 +78,10 @@ contract xKNC is
         __ERC20_init_unchained("xKNC", _symbol);
 
         mandate = _mandate;
-        kyberStaking = IKyberStaking(_kyberStakingAddress);
-        kyberProxy = IKyberNetworkProxy(_kyberProxyAddress);
-        knc = ERC20(_kyberTokenAddress);
-        kyberDao = IKyberDAO(_kyberDaoAddress);
+        kyberStaking = _kyberStaking;
+        kyberProxy = _kyberProxy;
+        knc = _knc;
+        kyberDao = _kyberDao;
 
         _setFeeDivisors(mintFee, burnFee, claimFee);
     }
@@ -153,9 +148,8 @@ contract xKNC is
             "Insufficient balance"
         );
 
-        uint256 proRataKnc = getFundKncBalanceTwei().mul(tokensToRedeemTwei).div(
-            totalSupply()
-        );
+        uint256 proRataKnc =
+            getFundKncBalanceTwei().mul(tokensToRedeemTwei).div(totalSupply());
         _withdraw(proRataKnc);
         super._burn(msg.sender, tokensToRedeemTwei);
 
@@ -177,15 +171,13 @@ contract xKNC is
             (bool success, ) = msg.sender.call.value(valToSend)("");
             require(success, "Burn transfer failed");
         }
-
-        emit Burn(msg.sender, redeemForKnc, tokensToRedeemTwei, block.timestamp);
     }
 
     /*
      * @notice Calculates proportional issuance according to KNC contribution
      * @notice Fund starts at ratio of INITIAL_SUPPLY_MULTIPLIER/1 == xKNC supply/KNC balance
      * and approaches 1/1 as rewards accrue in KNC
-     * @param kncBalanceBefore used to determine ratio of incremental to current KNC 
+     * @param kncBalanceBefore used to determine ratio of incremental to current KNC
      */
     function _calculateMintAmount(uint256 kncBalanceBefore)
         private
@@ -221,7 +213,10 @@ contract xKNC is
      * @param DAO campaign ID
      * @param Choice of voting option
      */
-    function vote(uint256 campaignID, uint256 option) external onlyOwnerOrManager {
+    function vote(uint256 campaignID, uint256 option)
+        external
+        onlyOwnerOrManager
+    {
         kyberDao.vote(campaignID, option);
     }
 
@@ -257,10 +252,6 @@ contract xKNC is
 
             if (kyberFeeTokens[i] == ETH_ADDRESS) {
                 _administerEthFee(FeeTypes.CLAIM, ethBalBefore);
-            } else {
-                uint256 tokenBal = IERC20(kyberFeeTokens[i]).balanceOf(
-                    address(this)
-                );
             }
 
             _unwindRewards(
@@ -317,9 +308,8 @@ contract xKNC is
 
             _swapEtherToKnc(amountToSell, minRate);
         } else {
-            uint256 tokenBal = IERC20(rewardTokenAddress).balanceOf(
-                address(this)
-            );
+            uint256 tokenBal =
+                IERC20(rewardTokenAddress).balanceOf(address(this));
             if (maxAmountToSell < tokenBal) {
                 amountToSell = maxAmountToSell;
             } else {
@@ -328,11 +318,7 @@ contract xKNC is
 
             uint256 kncBalanceBefore = getAvailableKncBalanceTwei();
 
-            _swapTokenToKnc(
-                rewardTokenAddress,
-                amountToSell,
-                minRate
-            );
+            _swapTokenToKnc(rewardTokenAddress, amountToSell, minRate);
 
             uint256 kncBalanceAfter = getAvailableKncBalanceTwei();
             _administerKncFee(
@@ -342,10 +328,7 @@ contract xKNC is
         }
     }
 
-    function _swapEtherToKnc(
-        uint256 amount,
-        uint256 minRate
-    ) private {
+    function _swapEtherToKnc(uint256 amount, uint256 minRate) private {
         kyberProxy.swapEtherToToken.value(amount)(knc, minRate);
     }
 
@@ -354,12 +337,7 @@ contract xKNC is
         uint256 amount,
         uint256 minRate
     ) private {
-        kyberProxy.swapTokenToToken(
-            ERC20(fromAddress),
-            amount,
-            knc,
-            minRate
-        );
+        kyberProxy.swapTokenToToken(ERC20(fromAddress), amount, knc, minRate);
     }
 
     /*
@@ -464,24 +442,24 @@ contract xKNC is
      * @dev ex: A feeDivisor of 334 suggests a fee of 0.3%
      * @param feeDivisors[mint, burn, claim]:
      */
-     function setFeeDivisors(uint256 _mintFee, uint256 _burnFee, uint256 _claimFee)
-         external
-         onlyOwner
-     {
-         _setFeeDivisors(_mintFee, _burnFee, _claimFee);
-     }
+    function setFeeDivisors(
+        uint256 _mintFee,
+        uint256 _burnFee,
+        uint256 _claimFee
+    ) external onlyOwner {
+        _setFeeDivisors(_mintFee, _burnFee, _claimFee);
+    }
 
-    function _setFeeDivisors(uint256 _mintFee, uint256 _burnFee, uint256 _claimFee)
-        private
-    {
+    function _setFeeDivisors(
+        uint256 _mintFee,
+        uint256 _burnFee,
+        uint256 _claimFee
+    ) private {
         require(
             _mintFee >= 100 || _mintFee == 0,
             "Mint fee must be zero or equal to or less than 1%"
         );
-        require(
-            _burnFee >= 100,
-            "Burn fee must be equal to or less than 1%"
-        );
+        require(_burnFee >= 100, "Burn fee must be equal to or less than 1%");
         require(_claimFee >= 10, "Claim fee must be less than 10%");
         feeDivisors.mintFee = _mintFee;
         feeDivisors.burnFee = _burnFee;

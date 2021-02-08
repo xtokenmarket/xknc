@@ -6,7 +6,12 @@ import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 
 interface IXKNC is IERC20 {
     function mintWithToken(uint256 kncAmountTwei) external;
-    function burn(uint256 sourceTokenBal, bool redeemForKnc, uint256 minRate) external;
+
+    function burn(
+        uint256 sourceTokenBal,
+        bool redeemForKnc,
+        uint256 minRate
+    ) external;
 }
 
 contract xMigration {
@@ -14,12 +19,12 @@ contract xMigration {
     IXKNC private sourceToken;
     IXKNC private targetToken;
 
-    uint256 constant MAX_UINT = 2**256-1;
+    uint256 constant MAX_UINT = 2**256 - 1;
 
     event MigrateToken(
-      address indexed userAccount,
-      uint256 tokenAmount,
-      uint256 kncAmount
+        address indexed userAccount,
+        uint256 tokenAmount,
+        uint256 kncAmount
     );
 
     constructor(
@@ -33,35 +38,31 @@ contract xMigration {
     }
 
     function migrate() external {
-      uint256 sourceTokenBal = sourceToken.balanceOf(msg.sender);
-      require(sourceTokenBal > 0,
-        "xMigration: sourceToken balance cant be 0");
+        uint256 sourceTokenBal = sourceToken.balanceOf(msg.sender);
+        require(
+            sourceTokenBal > 0,
+            "xMigration: sourceToken balance cant be 0"
+        );
 
-      // transfer source xKNC from user to here
-      sourceToken.transferFrom(
-        msg.sender,
-        address(this),
-        sourceTokenBal
-      );
+        // transfer source xKNC from user to here
+        sourceToken.transferFrom(msg.sender, address(this), sourceTokenBal);
 
-      // burn source xKNC for KNC
-      sourceToken.burn(sourceTokenBal, true, 0);
+        // burn source xKNC for KNC
+        sourceToken.burn(sourceTokenBal, true, 0);
 
-      // mint target xKNC for KNC
-      uint256 kncBal = knc.balanceOf(address(this));
-      targetToken.mintWithToken(kncBal);
+        // mint target xKNC for KNC
+        uint256 kncBal = knc.balanceOf(address(this));
+        targetToken.mintWithToken(kncBal);
 
-      // transfer back the target xKNC to user
-      uint256 xkncBal = targetToken.balanceOf(address(this));
-      targetToken.transfer(msg.sender, xkncBal);
+        // transfer back the target xKNC to user
+        uint256 xkncBal = targetToken.balanceOf(address(this));
+        targetToken.transfer(msg.sender, xkncBal);
 
-      emit MigrateToken(msg.sender, sourceTokenBal, kncBal);
+        emit MigrateToken(msg.sender, sourceTokenBal, kncBal);
     }
 
     // run once before exposing to users
     function approveTarget() external {
-      knc.approve(address(targetToken), MAX_UINT);
+        knc.approve(address(targetToken), MAX_UINT);
     }
-
-
 }
