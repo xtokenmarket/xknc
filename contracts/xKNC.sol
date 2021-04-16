@@ -12,6 +12,7 @@ import "./interface/IKyberStaking.sol";
 import "./interface/IKyberDAO.sol";
 import "./interface/IKyberFeeHandler.sol";
 import "./interface/INewKNC.sol";
+import "./interface/IRewardsDistributor.sol";
 
 /*
  * xKNC KyberDAO Pool Token
@@ -246,7 +247,6 @@ contract xKNC is
         bytes32[] calldata merkleProof,
         uint256[] calldata minRates
     ) external onlyOwnerOrManager {
-        require(tokens.length == cumulativeAmounts.length, "Must be equal length");
         require(tokens.length == minRates.length, "Must be equal length");
 
         rewardsDistributor.claim(
@@ -259,7 +259,9 @@ contract xKNC is
         );
 
         for (uint256 i = 0; i < tokens.length; i++) {
-            if(tokens[i] == ETH_ADDRESS){
+            if(address(tokens[i]) == address(knc)){
+                continue;
+            }else if(address(tokens[i]) == ETH_ADDRESS){
                 _swapEtherToKnc(getFundEthBalanceWei(), minRates[i]);
             } else {
                 _swapTokenToKnc(address(tokens[i]), tokens[i].balanceOf(address(this)), minRates[i]);
@@ -267,50 +269,6 @@ contract xKNC is
         }
 
         _administerKncFee(getAvailableKncBalanceTwei(), FeeTypes.CLAIM);
-        _deposit(getAvailableKncBalanceTwei());
-    }
-
-    /*
-     * @notice Claim reward from previous epoch
-     * @notice All fee handlers should be called at once
-     * @dev Admin calls with relevant params
-     * @dev ETH/other asset rewards swapped into KNC
-     * @param epoch - KyberDAO epoch
-     * @param feeHandlerIndices - indices of feeHandler contract to claim from
-     * @param maxAmountsToSell - sellAmount above which slippage would be too high
-     * and rewards would redirected into KNC in multiple trades
-     * @param minRates - kyberProxy.getExpectedRate(eth/token => knc)
-     */
-    function claimReward(
-        uint256 epoch,
-        uint256[] calldata feeHandlerIndices,
-        uint256[] calldata maxAmountsToSell,
-        uint256[] calldata minRates
-    ) external onlyOwnerOrManager {
-        require(
-            feeHandlerIndices.length == maxAmountsToSell.length,
-            "Arrays must be equal length"
-        );
-        require(
-            maxAmountsToSell.length == minRates.length,
-            "Arrays must be equal length"
-        );
-
-        uint256 ethBalBefore = getFundEthBalanceWei();
-        for (uint256 i = 0; i < feeHandlerIndices.length; i++) {
-            kyberFeeHandlers[i].claimStakerReward(address(this), epoch);
-
-            if (kyberFeeTokens[i] == ETH_ADDRESS) {
-                _administerEthFee(FeeTypes.CLAIM, ethBalBefore);
-            }
-
-            _unwindRewards(
-                feeHandlerIndices[i],
-                maxAmountsToSell[i],
-                minRates[i]
-            );
-        }
-
         _deposit(getAvailableKncBalanceTwei());
     }
 
@@ -473,11 +431,6 @@ contract xKNC is
         require(msg.sender != tx.origin, "Errant ETH deposit");
     }
 
-    // 
-    // V3 MIGRATION
-    // 
-    // 1) pause mint/burn 2) unstake all 3) approve migrator 4) migrate to new token 5) execute v3Initialize function with new addresses for new contracts, 6) restake
-
     function migrateV3(
         address _newKnc, 
         IKyberDAO _newKyberDao,
@@ -498,5 +451,13 @@ contract xKNC is
 
         knc.approve(address(kyberStaking), MAX_UINT);
         _deposit(getAvailableKncBalanceTwei());
+    }
+
+    function setRewardsDistributor(IRewardsDistributor _rewardsDistributor) external onlyOwner {
+        rewardsDistributor = _rewardsDistributor;
+    }
+
+    function getRewardDistributor() external view returns(IRewardsDistributor){
+        return rewardsDistributor;
     }
 }

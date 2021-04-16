@@ -13,9 +13,9 @@ const config = {
 	},
 	networks: {
 		hardhat: {
-			forking: {
-				url: process.env.NETENDPOINT
-			}
+			// forking: {
+			// 	url: process.env.NETENDPOINT
+			// }
 		},
 	},
 	mocha: {

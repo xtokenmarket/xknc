@@ -9,14 +9,18 @@ import "@openzeppelin/contracts-ethereum-package/contracts/utils/ReentrancyGuard
 
 import "../interface/IKyberNetworkProxy.sol";
 import "../interface/IKyberStaking.sol";
-import "../interface/IKyberDAO.sol";
 import "../interface/IKyberFeeHandler.sol";
+
+interface IKyberDAO {
+    function vote(uint256 campaignID, uint256 option) external;
+}
+
 
 /*
  * xKNC KyberDAO Pool Token
  * Communal Staking Pool with Stated Governance Position
  */
-contract xKNC is
+contract xKNCv1 is
     Initializable,
     ERC20UpgradeSafe,
     OwnableUpgradeSafe,
