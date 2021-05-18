@@ -66,7 +66,24 @@ contract xKNC is
     // vars added for v3
     bool private v3Initialized;
     IRewardsDistributor private rewardsDistributor;
-    
+
+    //  BlockLock logic ; Implements locking of mint, burn, transfer and transferFrom
+    //  functions via a notLocked modifier
+    //  Functions are locked per address.
+
+    // how many blocks are the functions locked for
+    uint256 private constant BLOCK_LOCK_COUNT = 6;
+    // last block for which this address is timelocked
+    mapping(address => uint256) public lastLockedBlock;
+
+    modifier notLocked(address lockedAddress) {
+        require(
+            lastLockedBlock[lockedAddress] <= block.number,
+            "Function is locked for this address"
+        );
+        _;
+        lastLockedBlock[lockedAddress] = block.number + BLOCK_LOCK_COUNT;
+    }
 
     function initialize(
         string memory _symbol,
@@ -99,7 +116,12 @@ contract xKNC is
      * @dev: Mints pro rata xKNC tokens
      * @param: kyberProxy.getExpectedRate(eth => knc)
      */
-    function mint(uint256 minRate) external payable whenNotPaused {
+    function mint(uint256 minRate)
+        external
+        payable
+        whenNotPaused
+        notLocked(msg.sender)
+    {
         require(msg.value > 0, "Must send eth with tx");
         // ethBalBefore checked in case of eth still waiting for exch to KNC
         uint256 ethBalBefore = getFundEthBalanceWei().sub(msg.value);
@@ -123,7 +145,11 @@ contract xKNC is
      * @dev: Mints pro rata xKNC tokens
      * @param: Number of KNC to contribue
      */
-    function mintWithToken(uint256 kncAmountTwei) external whenNotPaused {
+    function mintWithToken(uint256 kncAmountTwei)
+        external
+        whenNotPaused
+        notLocked(msg.sender)
+    {
         require(kncAmountTwei > 0, "Must contribute KNC");
         knc.safeTransferFrom(msg.sender, address(this), kncAmountTwei);
 
@@ -149,7 +175,7 @@ contract xKNC is
         uint256 tokensToRedeemTwei,
         bool redeemForKnc,
         uint256 minRate
-    ) external nonReentrant {
+    ) external nonReentrant notLocked(msg.sender) {
         require(
             balanceOf(msg.sender) >= tokensToRedeemTwei,
             "Insufficient balance"
@@ -200,6 +226,23 @@ contract xKNC is
             .div(kncBalanceBefore);
     }
 
+    function transfer(address recipient, uint256 amount)
+        public
+        override
+        notLocked(msg.sender)
+        returns (bool)
+    {
+        return super.transfer(recipient, amount);
+    }
+
+    function transferFrom(
+        address sender,
+        address recipient,
+        uint256 amount
+    ) public override notLocked(sender) returns (bool) {
+        return super.transferFrom(sender, recipient, amount);
+    }
+
     /*
      * @notice KyberDAO deposit
      */
@@ -226,8 +269,6 @@ contract xKNC is
     {
         kyberDao.submitVote(proposalId, optionBitMask);
     }
-
-
 
     /*
      * @notice Claim reward from previous epoch
@@ -259,12 +300,16 @@ contract xKNC is
         );
 
         for (uint256 i = 0; i < tokens.length; i++) {
-            if(address(tokens[i]) == address(knc)){
+            if (address(tokens[i]) == address(knc)) {
                 continue;
-            }else if(address(tokens[i]) == ETH_ADDRESS){
+            } else if (address(tokens[i]) == ETH_ADDRESS) {
                 _swapEtherToKnc(getFundEthBalanceWei(), minRates[i]);
             } else {
-                _swapTokenToKnc(address(tokens[i]), tokens[i].balanceOf(address(this)), minRates[i]);
+                _swapTokenToKnc(
+                    address(tokens[i]),
+                    tokens[i].balanceOf(address(this)),
+                    minRates[i]
+                );
             }
         }
 
@@ -432,7 +477,7 @@ contract xKNC is
     }
 
     function migrateV3(
-        address _newKnc, 
+        address _newKnc,
         IKyberDAO _newKyberDao,
         IKyberStaking _newKyberStaking,
         IRewardsDistributor _rewardsDistributor
@@ -453,11 +498,18 @@ contract xKNC is
         _deposit(getAvailableKncBalanceTwei());
     }
 
-    function setRewardsDistributor(IRewardsDistributor _rewardsDistributor) external onlyOwner {
+    function setRewardsDistributor(IRewardsDistributor _rewardsDistributor)
+        external
+        onlyOwner
+    {
         rewardsDistributor = _rewardsDistributor;
     }
 
-    function getRewardDistributor() external view returns(IRewardsDistributor){
+    function getRewardDistributor()
+        external
+        view
+        returns (IRewardsDistributor)
+    {
         return rewardsDistributor;
     }
 }

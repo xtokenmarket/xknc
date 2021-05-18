@@ -177,6 +177,7 @@ describe('xKNC', () => {
 		it('should issue xKNC tokens to the caller', async () => {
 			const xkncBalBefore = await xkncProxyCast.balanceOf(wallet.address);
 			await xkncProxyCast.mint(0, { value: utils.parseEther('0.01') });
+			await mineBlocks(5);
 			const xkncBalAfter = await xkncProxyCast.balanceOf(wallet.address);
 
 			assert.isAbove(xkncBalAfter, xkncBalBefore);
@@ -195,7 +196,9 @@ describe('xKNC', () => {
 			const xkncBalBefore = await xkncProxyCast.balanceOf(wallet.address);
 			await newKnc.approve(xkncProxyCast.address, utils.parseEther('10000'));
 
+			await mineBlocks(5);
 			await xkncProxyCast.mintWithToken(utils.parseEther('0.01'));
+			await mineBlocks(5);
 			const xkncBalAfter = await xkncProxyCast.balanceOf(wallet.address);
 
 			assert.isAbove(xkncBalAfter, xkncBalBefore, 'xKNC minted');
@@ -214,6 +217,7 @@ describe('xKNC', () => {
 			const ethBalBefore = await provider.getBalance(wallet.address);
 
 			await xkncProxyCast.burn(toBurn, false, 0, { gasLimit: 1000000 });
+			await mineBlocks(5);
 			const ethBalAfter = await provider.getBalance(wallet.address);
 			assert.isAbove(ethBalAfter, ethBalBefore);
 		});
@@ -286,7 +290,111 @@ describe('xKNC', () => {
 		it('should allow minting once unpaused', async () => {
 			await xkncProxyCast.connect(manager2).unpause();
 			await xkncProxyCast.mint('0', { value: utils.parseEther('1') });
+			await mineBlocks(5);
 			assert.isOk('Minted');
 		});
 	});
+
+	describe('xKNC: BlockLock', async () => {
+		it('account shouldn\'t be able to call mint, burn and transfer before 6 blocks have been mined', async () => {
+			const amount = utils.parseEther('0.01');
+			await xkncProxyCast.mint('0', { value: amount });
+			await expect(xkncProxyCast.mintWithToken(amount)).
+				to.be.reverted;
+			await expect(xkncProxyCast.burn(amount, true, 0)).
+				to.be.reverted;
+			await expect(xkncProxyCast.transfer(manager.address, amount)).
+				to.be.reverted;
+			await mineBlocks(5);
+		  }),
+		
+		  it('account shouldn\'t be able to call transfer, mint and burn before 6 blocks have been mined', async () => {
+			const amount = utils.parseEther('0.01');
+			await xkncProxyCast.transfer(manager.address, amount);
+			await expect(xkncProxyCast.mint(0, { value: amount })).
+				to.be.reverted;
+			await expect(xkncProxyCast.mintWithToken(amount)).
+				to.be.reverted;
+			await expect(xkncProxyCast.burn(amount, true, 0)).
+				to.be.reverted;
+			await expect(xkncProxyCast.transfer(manager.address, amount)).
+				to.be.reverted;
+			await mineBlocks(5);
+		  }),
+		
+		  it(`no account should be able to call transferFrom from sender address
+				which has called mint before 6 blocks have been mined`, async () => {
+			await xkncProxyCast.approve(manager.address, 1);
+			await xkncProxyCast.approve(manager2.address, 1);
+			await xkncProxyCast.mint('0', { value: utils.parseEther('0.01') });
+			await expect(xkncProxyCast.connect(manager).transferFrom(wallet.address, manager.address, 1)).
+				to.be.reverted;
+			await expect(xkncProxyCast.connect(manager2).transferFrom(wallet.address, manager.address, 1)).
+				to.be.reverted;
+			await mineBlocks(5);
+		  }),
+		
+		  it('account should be able to call mint, burn, transfer or transferFrom if >= 6 blocks have been mined', async () => {
+			const amount = utils.parseEther('0.01');
+			await xkncProxyCast.mint('0', { value: amount });
+			await mineBlocks(5);
+			await xkncProxyCast.burn(amount, true, 0);
+			await mineBlocks(5);
+			await xkncProxyCast.transfer(manager.address, amount);
+			await mineBlocks(5);
+			await xkncProxyCast.approve(manager.address, 1);
+			await xkncProxyCast.connect(manager).transferFrom(wallet.address, manager.address, 1);
+			await mineBlocks(5);
+		  }),
+		
+		  it('other accounts should be able to call mint even if one is locked', async () => {
+			const amount = utils.parseEther('0.01');
+			await xkncProxyCast.mint('0', { value: amount });
+			await expect(xkncProxyCast.mint('0', { value: amount })).
+				to.be.reverted;
+			await xkncProxyCast.connect(manager).mint('0', { value: amount });
+			await mineBlocks(5);
+		  }),
+		
+		  it('other accounts should be able to call burn even if one is locked', async () => {
+			const amount = utils.parseEther('0.01');
+			await xkncProxyCast.burn(amount, true, 0);
+			await expect(xkncProxyCast.burn(amount, true, 0)).
+				to.be.reverted;
+			await xkncProxyCast.connect(manager).burn(amount, true, 0);
+			await mineBlocks(5);
+		  }),
+		
+		  it('other accounts should be able to call transfer even if one is locked', async () => {
+			const amount = utils.parseEther('0.01');
+			await xkncProxyCast.mint('0', { value: amount });
+			await expect(xkncProxyCast.transfer(manager.address, amount)).
+				to.be.reverted;
+			await xkncProxyCast.connect(manager).transfer(manager2.address, amount);
+			await mineBlocks(5);
+		  }),
+		
+		  it('other accounts should be able to call transferFrom even if one is locked', async () => {
+			await xkncProxyCast.connect(manager).approve(manager.address, 1);
+			await xkncProxyCast.approve(manager.address, 1);
+			const amount = utils.parseEther('0.01');
+			await xkncProxyCast.mint('0', { value: amount });
+			await expect(xkncProxyCast.connect(manager).transferFrom(wallet.address, manager.address, 1)).
+				to.be.reverted;
+			await xkncProxyCast.connect(manager).transferFrom(manager.address, manager2.address, 1);
+		  })
+	});
 });
+
+
+/**
+ * Mine several blocks in network
+ * @param {Number} blockCount how many blocks to mine
+ */
+ async function mineBlocks(blockCount) {
+	let provider = waffle.provider;
+	for(let i = 0 ; i < blockCount ; ++i) {
+		await provider.send("evm_mine");
+	}
+  }
+  
