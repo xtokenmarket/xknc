@@ -308,12 +308,14 @@ describe('xKNC', () => {
 			await mineBlocks(5);
 		  }),
 		
-		  it('account shouldn\'t be able to call burn, mint and transfer before 6 blocks have been mined', async () => {
+		  it('account shouldn\'t be able to call transfer, mint and burn before 6 blocks have been mined', async () => {
 			const amount = utils.parseEther('0.01');
-			await xkncProxyCast.burn(amount, true, 0);
+			await xkncProxyCast.transfer(manager.address, amount);
 			await expect(xkncProxyCast.mint(0, { value: amount })).
 				to.be.reverted;
 			await expect(xkncProxyCast.mintWithToken(amount)).
+				to.be.reverted;
+			await expect(xkncProxyCast.burn(amount, true, 0)).
 				to.be.reverted;
 			await expect(xkncProxyCast.transfer(manager.address, amount)).
 				to.be.reverted;
@@ -325,18 +327,6 @@ describe('xKNC', () => {
 			await xkncProxyCast.approve(manager.address, 1);
 			await xkncProxyCast.approve(manager2.address, 1);
 			await xkncProxyCast.mint('0', { value: utils.parseEther('0.01') });
-			await expect(xkncProxyCast.connect(manager).transferFrom(wallet.address, manager.address, 1)).
-				to.be.reverted;
-			await expect(xkncProxyCast.connect(manager2).transferFrom(wallet.address, manager.address, 1)).
-				to.be.reverted;
-			await mineBlocks(5);
-		  }),
-
-		  it(`no account should be able to call transferFrom from sender address
-				which has called burn before 6 blocks have been mined`, async () => {
-			await xkncProxyCast.approve(manager.address, 1);
-			await xkncProxyCast.approve(manager2.address, 1);
-			await xkncProxyCast.burn(1, true, 0);
 			await expect(xkncProxyCast.connect(manager).transferFrom(wallet.address, manager.address, 1)).
 				to.be.reverted;
 			await expect(xkncProxyCast.connect(manager2).transferFrom(wallet.address, manager.address, 1)).

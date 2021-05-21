@@ -66,11 +66,24 @@ contract xKNC is
     // vars added for v3
     bool private v3Initialized;
     IRewardsDistributor private rewardsDistributor;
-    
-    // addresses are locked from transfer after minting or burning
+
+    //  BlockLock logic ; Implements locking of mint, burn, transfer and transferFrom
+    //  functions via a notLocked modifier
+    //  Functions are locked per address.
+
+    // how many blocks are the functions locked for
     uint256 private constant BLOCK_LOCK_COUNT = 6;
     // last block for which this address is timelocked
     mapping(address => uint256) public lastLockedBlock;
+
+    modifier notLocked(address lockedAddress) {
+        require(
+            lastLockedBlock[lockedAddress] <= block.number,
+            "Function is locked for this address"
+        );
+        _;
+        lastLockedBlock[lockedAddress] = block.number + BLOCK_LOCK_COUNT;
+    }
 
     function initialize(
         string memory _symbol,
@@ -110,7 +123,6 @@ contract xKNC is
         notLocked(msg.sender)
     {
         require(msg.value > 0, "Must send eth with tx");
-        lock(msg.sender);
         // ethBalBefore checked in case of eth still waiting for exch to KNC
         uint256 ethBalBefore = getFundEthBalanceWei().sub(msg.value);
         uint256 fee = _administerEthFee(FeeTypes.MINT, ethBalBefore);
@@ -139,7 +151,6 @@ contract xKNC is
         notLocked(msg.sender)
     {
         require(kncAmountTwei > 0, "Must contribute KNC");
-        lock(msg.sender);
         knc.safeTransferFrom(msg.sender, address(this), kncAmountTwei);
 
         uint256 kncBalanceBefore = getFundKncBalanceTwei();
@@ -169,7 +180,6 @@ contract xKNC is
             balanceOf(msg.sender) >= tokensToRedeemTwei,
             "Insufficient balance"
         );
-        lock(msg.sender);
 
         uint256 proRataKnc =
             getFundKncBalanceTwei().mul(tokensToRedeemTwei).div(totalSupply());
@@ -457,27 +467,6 @@ contract xKNC is
             "Non-admin caller"
         );
         _;
-    }
-
-    /**
-     *  BlockLock logic: Implements locking of mint, burn, transfer and transferFrom
-     *  functions via a notLocked modifier.
-     *  Functions are locked per address.
-     */
-    modifier notLocked(address lockedAddress) {
-        require(
-            lastLockedBlock[lockedAddress] <= block.number,
-            "Function is temporarily locked for this address"
-        );
-        _;
-    }
-
-    /**
-     * @dev Lock mint, burn, transfer and transferFrom functions
-     *      for _address for BLOCK_LOCK_COUNT blocks
-     */
-    function lock(address _address) private {
-        lastLockedBlock[_address] = block.number + BLOCK_LOCK_COUNT;
     }
 
     /*
